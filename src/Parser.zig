@@ -31,6 +31,14 @@ pub const Token = struct {
             .value = value,
         };
     }
+
+    pub fn is_short_option(self: Token) bool {
+        return self.kind == .ShortOption or self.kind == .AmbiguousShortOption;
+    }
+
+    pub fn is_long_option(self: Token) bool {
+        return self.kind == .LongOption or self.kind == .LongOptionWithValue;
+    }
 };
 
 pub const Tokenizer = struct {
@@ -84,6 +92,26 @@ pub const Tokenizer = struct {
         }
 
         return Token.create(.AmbiguousShortOption, arg);
+    }
+
+    pub fn parse_value(_: Tokenizer, token: Token, comptime T: type) !T {
+        if (token.kind == .LongOption or token.kind == .ShortOption) {
+            if (T != bool) {
+                return error.ParseError;
+            }
+
+            return true;
+        }
+
+        if (token.value) |value| {
+            switch (@typeInfo(T)) {
+                .Enum => return std.meta.stringToEnum(T, value) orelse error.ParseError,
+                else => {}
+            }
+        }
+
+        std.debug.print("{}\n", .{T});
+        return error.ParseError;
     }
 };
 

@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const Command = @import("Command.zig");
 const CommandDef = Command.CommandDef;
 const Option = @import("Option.zig");

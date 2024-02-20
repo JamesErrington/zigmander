@@ -17,11 +17,12 @@ pub fn main() !void {
     // const allocator = arena.allocator();
 
     const debug_opt = Option.create('d', "debug");
-    // const color_opt = Option.createValue('c', "color", Color);
-    const root = Command.create("name", "description", &.{debug_opt});
+    const color_opt = Option.createValue('c', "color", Color);
+    const root = Command.create("name", "description", &.{debug_opt, color_opt});
     const app = comptime App.compile(root);
 
-    const result = zigmander.parseSlice(app, &.{ "./exe", "--debug", "--color=Red" });
+    const result = try zigmander.parseSlice(app, &.{ "./exe", "--debug", "--color=Red" });
 
     std.debug.print("Debug: {}\n", .{result.options.debug.value});
+    std.debug.print("Debug: {}\n", .{result.options.color.value});
 }
