@@ -47,7 +47,6 @@ test {
 
 fn ParsedOption(comptime T: type) type {
     return struct {
-        name: Name,
         value: T,
         present: bool,
     };
@@ -63,7 +62,6 @@ pub fn ParsedOptions(comptime options: []const OptionDef) type {
             .name = option.name.long,
             .type = OptionType,
             .default_value = @ptrCast(&OptionType{
-                .name = option.name,
                 .value = std.mem.zeroes(option.kind),
                 .present = false,
             }),
