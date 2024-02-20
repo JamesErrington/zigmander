@@ -2,28 +2,26 @@ const std = @import("std");
 const zigmander = @import("zigmander");
 
 const App = zigmander.App;
-const Param = zigmander.Param;
+const Command = zigmander.Command;
+const Option = zigmander.Option;
 
-const Pizza = enum {
-    Margherita,
-    Hawaiian,
-    Pepperoni,
+const Color = enum {
+    Red,
+    Blue,
+    Green,
 };
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-    defer arena.deinit();
+    // var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+    // defer arena.deinit();
+    // const allocator = arena.allocator();
 
-    const allocator = arena.allocator();
+    const debug_opt = Option.create('d', "debug");
+    // const color_opt = Option.createValue('c', "color", Color);
+    const root = Command.create("name", "description", &.{ debug_opt });
+    const app = comptime App.compile(root);
 
-    const params = &.{
-        Param.create(bool, 'd', "debug", "output extra debugging"),
-        Param.create(bool, 's', "small", "small pizza slice"),
-        Param.create(Pizza, 'p', "pizza-type", "flavour of pizza"),
-    };
+    const result = zigmander.parseSlice(app, &.{ "./exe", "--color" });
 
-    const program = comptime App.compile("string-utils", params);
-
-    const result = try zigmander.parse(program, allocator);
-    _ = result;
+    std.debug.print("Debug: {}\n", .{result.options.debug.value});
 }

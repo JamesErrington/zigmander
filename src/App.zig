@@ -1,16 +1,15 @@
-const std = @import("std");
-const zigmander = @import("./lib.zig");
+const Command = @import("Command.zig");
+const CommandDef = Command.CommandDef;
+const Option = @import("Option.zig");
 
-const Allocator = std.mem.Allocator;
 const App = @This();
-const Param = zigmander.Param;
 
-name: []const u8,
-params: []const Param,
+root: CommandDef,
+OptionsType: type,
 
-pub fn compile(comptime name: []const u8, comptime params: []const Param) App {
+pub fn compile(comptime root: CommandDef) App {
     return .{
-        .name = name,
-        .params = params,
+        .root = root,
+        .OptionsType = Option.ParsedOptions(root.options),
     };
 }

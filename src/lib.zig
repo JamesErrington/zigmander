@@ -1,68 +1,60 @@
 const std = @import("std");
-
 const Allocator = std.mem.Allocator;
-const Type = std.builtin.Type;
 
 pub const App = @import("App.zig");
+pub const Command = @import("Command.zig");
+pub const Option = @import("Option.zig");
 
-const Name = struct {
-    short: u8,
-    long: [:0]const u8,
-};
+pub fn parseSlice(app: App, argv: []const [:0]const u8) Result(app) {
+    var exe_name: ?[:0]const u8 = null;
 
-pub const Param = struct {
-    type: type,
-    name: Name,
-    description: ?[]const u8,
+    const OptionsType = app.OptionsType;
+    var options = OptionsType{};
 
-    pub fn create(comptime T: type, short: u8, long: [:0]const u8, desc: ?[]const u8) Param {
-        return .{
-            .type = T,
-            .name = .{ .short = short, .long = long },
-            .description = desc,
-        };
-    }
-};
+    for (argv, 0..) |argument, i| {
+        if (i == 0) exe_name = argument;
 
-pub fn parse(app: App, allocator: Allocator) !bool {
-    _ = app;
-    var iter = try std.process.argsWithAllocator(allocator);
-    defer iter.deinit();
-
-    const exe_arg = iter.next();
-    _ = exe_arg;
-
-    while (iter.next()) |arg| {
-        std.debug.print("{s}\n", .{arg});
+        if (std.mem.startsWith(u8, argument, "--")) {
+            inline for (std.meta.fields(OptionsType)) |field| {
+                if (std.mem.eql(u8, field.name, argument[2..])) {
+                    @field(options, field.name) = .{
+                        .name = .{ .short = ' ', .long = ""},
+                        .value = true,
+                        .present = true,
+                    };
+                }
+            }
+        }
     }
 
-    return false;
-}
-
-fn Result(params: []const Param) type {
-    return struct {
-        exe_arg: ?[]const u8,
-        args: Args(params),
+    return .{
+        .exe_name = exe_name,
+        .options = options,
     };
+
+
+    // const exe_name: ?[:0]const u8 = if (argv.len > 0) argv[0] else null;
+
+    // const OptionsType = app.OptionsType;
+    // var options = OptionsType{};
+
+    // const arg = argv[1];
+    // inline for (app.root.options) |option| {
+    //     if (std.mem.eql(u8, option, arg)) {
+    //         @field(options, option) = .{
+    //             .name = option.name,
+    //             .value = true,
+    //             .present = true,
+    //         };
+    //     }
+    // }
+
+
 }
 
-fn Args(params: []const Param) type {
-    var fields: [params.len]Type.StructField = undefined;
-
-    for (params, 0..) |param, i| {
-        fields[i] = .{
-            .name = param.name.long,
-            .type = param.type,
-            .default_value = null,
-            .is_comptime = false,
-            .alignment = @alignOf(param.type),
-        };
-    }
-
-    return @Type(.{ .Struct = .{
-        .layout = .Auto,
-        .fields = &fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+pub fn Result(comptime app: App) type {
+    return struct {
+        exe_name: ?[:0]const u8,
+        options: app.OptionsType,
+    };
 }
