@@ -16,6 +16,7 @@ pub fn create(comptime short: u8, comptime long: [:0]const u8) OptionDef {
 }
 
 pub fn createValue(comptime short: u8, comptime long: [:0]const u8, comptime kind: type) OptionDef {
+    // @FIXME: we should disallow certain types
     return .{
         .name = .{
             .short = short,
@@ -62,6 +63,7 @@ pub fn ParsedOptions(comptime options: []const OptionDef) type {
             .name = option.name.long,
             .type = OptionType,
             .default_value = @ptrCast(&OptionType{
+                // @FIXME: this won't work with non-zero enums
                 .value = std.mem.zeroes(option.kind),
                 .present = false,
             }),

@@ -21,8 +21,8 @@ pub fn main() !void {
     const root = Command.create("name", "description", &.{debug_opt, color_opt});
     const app = comptime App.compile(root);
 
-    const result = try zigmander.parseSlice(app, &.{ "./exe", "--debug", "--color=Red" });
+    const result = try zigmander.parseSlice(app, &.{ "", "-dcBlue" });
 
     std.debug.print("Debug: {}\n", .{result.options.debug.value});
-    std.debug.print("Debug: {}\n", .{result.options.color.value});
+    std.debug.print("Color: {}\n", .{result.options.color.value});
 }

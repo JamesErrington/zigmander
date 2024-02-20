@@ -110,7 +110,7 @@ pub const Tokenizer = struct {
             }
         }
 
-        std.debug.print("{}\n", .{T});
+        std.debug.print("{}\n", .{token});
         return error.ParseError;
     }
 };

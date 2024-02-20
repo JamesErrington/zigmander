@@ -6,6 +6,12 @@ pub const Command = @import("Command.zig");
 pub const Option = @import("Option.zig");
 const Parser = @import("Parser.zig");
 
+pub fn parseProcess(app: App, allocator: Allocator) !Result(app) {
+    // @FIXME fix freeing this allocation when not using an arena
+    const argv = try std.process.argsAlloc(allocator);
+    return parseSlice(app, argv);
+}
+
 pub fn parseSlice(app: App, argv: []const [:0]const u8) !Result(app) {
     const exe_name: ?[:0]const u8 = null;
 
@@ -17,6 +23,10 @@ pub fn parseSlice(app: App, argv: []const [:0]const u8) !Result(app) {
     _ = tokenizer.nextToken();
 
     while (tokenizer.nextToken()) |token| {
+        if (token.kind == .AmbiguousShortOption) {
+            std.debug.print("{}\n", .{token});
+            continue;
+        }
         std.debug.print("{s}: {?s}\n", .{token.text, token.value});
 
         inline for (app.root.options) |option| {
