@@ -18,11 +18,12 @@ pub fn main() !void {
 
     const debug_opt = Option.create('d', "debug");
     const color_opt = Option.createValue('c', "color", Color);
-    const root = Command.create("name", "description", &.{debug_opt, color_opt});
+    const root = Command.create("name", "description", &.{ debug_opt, color_opt });
     const app = comptime App.compile(root);
 
-    const result = try zigmander.parseSlice(app, &.{ "", "-dcBlue" });
+    _ = app;
+    // const result = try zigmander.parseSlice(app, &.{ "", "-dcBlue" });
 
-    std.debug.print("Debug: {}\n", .{result.options.debug.value});
-    std.debug.print("Color: {}\n", .{result.options.color.value});
+    // std.debug.print("Debug: {}\n", .{result.options.debug.value});
+    // std.debug.print("Color: {}\n", .{result.options.color.value});
 }
