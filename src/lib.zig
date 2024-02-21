@@ -3,20 +3,31 @@ const std = @import("std");
 const Type = std.builtin.Type;
 
 pub fn parse(app: App, argv: []const [:0]const u8) !Result(app) {
-    _ = argv;
+    var args = argv;
+    var exe_name: ?[]const u8 = null;
+    if (argv.len > 0) {
+        exe_name = argv[0];
+        args = argv[1..];
+    }
+
+    for (args) |arg_str| {
+        std.debug.print("{s}\n", .{arg_str});
+
+        inline for (app.names) |name| {
+            if (std.mem.eql(u8, name, arg_str[2..])) {
+                std.debug.print("{?}\n", .{app.Map.get(name)});
+            }
+        }
+    }
 
     return .{
-        .exe_name = null,
+        .exe_name = exe_name,
         .root = .{
-            .options = .{},
+            .options = .{ .debug = false },
         },
-        .subcommand = .{
-            .pull = .{
-                .options = .{
-                    .shallow = true,
-                }
-            }
-        },
+        .subcommand = .{ .pull = .{ .options = .{
+            .shallow = true,
+        } } },
     };
 }
 
@@ -24,6 +35,10 @@ pub const Option = struct {
     short_name: u8,
     long_name: []const u8,
     kind: type,
+
+    pub fn boolean(comptime short: u8, comptime long: []const u8) Option {
+        return new(bool, short, long);
+    }
 
     pub fn new(comptime kind: type, comptime short: u8, comptime long: []const u8) Option {
         return .{
@@ -46,12 +61,53 @@ pub const Command = struct {
     }
 };
 
+const ArgType = enum {
+    Command,
+    Option,
+    Argument,
+};
+
+const S = struct {
+    kind: ArgType,
+    takes_value: bool,
+};
+
 pub const App = struct {
+    root: Command,
     RootType: type,
     SubcommandType: type,
+    Map: type,
+    names: []const []const u8,
 
     pub fn compile(comptime root: Command, comptime subcommands: []const Command) App {
-        return .{ .RootType = ParsedCommand(root), .SubcommandType = ParsedCommands(subcommands) };
+        var size = root.options.len;
+        for (subcommands) |cmd| {
+            size += cmd.options.len;
+        }
+
+        var names: [size][]const u8 = undefined;
+        var kvs: [size]std.meta.Tuple(&.{ []const u8, S }) = undefined;
+
+        var i: usize = 0;
+        for (root.options) |opt| {
+            names[i] = opt.long_name;
+            kvs[i] = .{ opt.long_name, .{ .kind = .Option, .takes_value = opt.kind != bool } };
+
+            i += 1;
+        }
+
+        for (subcommands) |cmd| {
+            for (cmd.options) |opt| {
+                names[i] = opt.long_name;
+                kvs[i] = .{ opt.long_name, .{ .kind = .Option, .takes_value = opt.kind != bool } };
+
+                i += 1;
+            }
+        }
+
+        const map = std.ComptimeStringMap(S, kvs);
+
+        return .{ .root = root, .RootType = ParsedCommand(root), .SubcommandType = ParsedCommands(subcommands), .Map = map, .names = &names };
     }
 };
 
@@ -124,3 +180,20 @@ pub fn Result(comptime app: App) type {
         subcommand: app.SubcommandType,
     };
 }
+
+const Parser = struct {
+    const State = enum {
+        RootOptions,
+        Subcommand,
+        SubOptions,
+        Arguments,
+    };
+
+    state: State,
+
+    pub fn init() Parser {
+        return .{
+            .state = .RootOptions,
+        };
+    }
+};
