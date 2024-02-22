@@ -10,25 +10,42 @@ pub fn parse(app: App, argv: []const [:0]const u8) !Result(app) {
         args = argv[1..];
     }
 
-    for (args) |arg_str| {
-        std.debug.print("{s}\n", .{arg_str});
+    var root_options: ParsedOptions(app.root.options) = .{};
 
-        inline for (app.names) |name| {
-            if (std.mem.eql(u8, name, arg_str[2..])) {
-                std.debug.print("{?}\n", .{app.Map.get(name)});
+    var iter = Tokenizer.init(args);
+    while (iter.next_token()) |token| {
+        if (token.is_option()) {
+            inline for (app.root.options) |option| {
+                if ((token.kind == .ShortOption and token.text[0] == option.short_name) or (token.kind == .LongOption and std.mem.eql(u8, token.text, option.long_name))) {
+                    @field(root_options, option.long_name) = try parse_token(token, option.kind);
+                }
             }
         }
     }
 
     return .{
         .exe_name = exe_name,
-        .root = .{
-            .options = .{ .debug = false },
-        },
+        .options = root_options,
         .subcommand = .{ .pull = .{ .options = .{
-            .shallow = true,
+            .shallow = null,
+            .color = null,
         } } },
     };
+}
+
+fn parse_token(token: Token, comptime T: type) !T {
+    if (T == bool) {
+        return if (token.value) |_| error.ParseError else true;
+    }
+
+    if (token.value) |value| {
+        switch (@typeInfo(T)) {
+            .Enum => return std.meta.stringToEnum(T, value) orelse error.ParseError,
+            else => {},
+        }
+    }
+
+    return error.ParseError;
 }
 
 pub const Option = struct {
@@ -37,10 +54,10 @@ pub const Option = struct {
     kind: type,
 
     pub fn boolean(comptime short: u8, comptime long: []const u8) Option {
-        return new(bool, short, long);
+        return value(short, long, bool);
     }
 
-    pub fn new(comptime kind: type, comptime short: u8, comptime long: []const u8) Option {
+    pub fn value(comptime short: u8, comptime long: []const u8, comptime kind: type) Option {
         return .{
             .short_name = short,
             .long_name = long,
@@ -74,51 +91,25 @@ const S = struct {
 
 pub const App = struct {
     root: Command,
-    RootType: type,
-    SubcommandType: type,
-    Map: type,
-    names: []const []const u8,
+    subcommands: []const Command,
 
-    pub fn compile(comptime root: Command, comptime subcommands: []const Command) App {
-        var size = root.options.len;
-        for (subcommands) |cmd| {
-            size += cmd.options.len;
-        }
-
-        var names: [size][]const u8 = undefined;
-        var kvs: [size]std.meta.Tuple(&.{ []const u8, S }) = undefined;
-
-        var i: usize = 0;
-        for (root.options) |opt| {
-            names[i] = opt.long_name;
-            kvs[i] = .{ opt.long_name, .{ .kind = .Option, .takes_value = opt.kind != bool } };
-
-            i += 1;
-        }
-
-        for (subcommands) |cmd| {
-            for (cmd.options) |opt| {
-                names[i] = opt.long_name;
-                kvs[i] = .{ opt.long_name, .{ .kind = .Option, .takes_value = opt.kind != bool } };
-
-                i += 1;
-            }
-        }
-
-        const map = std.ComptimeStringMap(S, kvs);
-
-        return .{ .root = root, .RootType = ParsedCommand(root), .SubcommandType = ParsedCommands(subcommands), .Map = map, .names = &names };
+    pub fn new(comptime root: Command, comptime subcommands: []const Command) App {
+        return .{
+            .root = root,
+            .subcommands = subcommands,
+        };
     }
 };
 
 pub fn ParsedOptions(comptime options: []const Option) type {
     var fields: [options.len]Type.StructField = undefined;
 
+
     for (options, 0..) |option, i| {
         fields[i] = .{
             .name = option.long_name ++ "",
             .type = ?option.kind,
-            .default_value = null,
+            .default_value = @ptrCast(&@as(?option.kind, null)),
             .is_comptime = false,
             .alignment = @alignOf(?option.kind),
         };
@@ -176,8 +167,8 @@ pub fn ParsedCommands(comptime commands: []const Command) type {
 pub fn Result(comptime app: App) type {
     return struct {
         exe_name: ?[]const u8,
-        root: app.RootType,
-        subcommand: app.SubcommandType,
+        options: ParsedOptions(app.root.options),
+        subcommand: ParsedCommands(app.subcommands),
     };
 }
 
@@ -197,3 +188,102 @@ const Parser = struct {
         };
     }
 };
+
+const Token = struct {
+    const Kind = enum {
+        ShortOption,
+        LongOption,
+        Plain,
+    };
+
+    kind: Kind,
+    text: []const u8,
+    value: ?[]const u8,
+
+    pub fn new(kind: Kind, text: []const u8, value: ?[]const u8) Token {
+        return .{
+            .kind = kind,
+            .text = text,
+            .value = value,
+        };
+    }
+
+    pub fn is_option(token: Token) bool {
+        return token.kind == .ShortOption or token.kind == .LongOption;
+    }
+};
+
+const Tokenizer = struct {
+    buffer: []const [:0]const u8,
+    cursor: usize,
+
+    pub fn init(buffer: []const [:0]const u8) Tokenizer {
+        return .{
+            .buffer = buffer,
+            .cursor = 0,
+        };
+    }
+
+    pub fn next_token(self: *Tokenizer) ?Token {
+        if (self.cursor >= self.buffer.len) return null;
+
+        defer self.cursor += 1;
+        const arg = @as([]const u8, self.buffer[self.cursor]);
+
+        if (std.mem.startsWith(u8, arg, "--")) {
+            return tokenize_long_option(arg[2..]);
+        }
+
+        if (std.mem.startsWith(u8, arg, "-")) {
+            return tokenize_short_option(arg[1..]);
+        }
+
+        return Token.new(.Plain, arg, null);
+    }
+
+    fn tokenize_long_option(arg: []const u8) Token {
+        if (std.mem.indexOf(u8, arg, "=")) |equal_idx| {
+            return Token.new(.LongOption, arg[0..equal_idx], arg[equal_idx + 1 ..]);
+        }
+
+        return Token.new(.LongOption, arg, null);
+    }
+
+    fn tokenize_short_option(arg: []const u8) Token {
+        if (arg.len > 1) {
+            return Token.new(.ShortOption, &.{arg[0]}, arg[1..]);
+        }
+
+        return Token.new(.ShortOption, arg, null);
+    }
+};
+
+const expect = std.testing.expect;
+test {
+    var iter = Tokenizer.init(&.{ "-d", "-cRed", "--debug", "--color=Red", "push" });
+
+    var token = iter.next_token();
+    try expect(token.?.kind == .ShortOption);
+    try expect(std.mem.eql(u8, token.?.text, "d"));
+    try expect(token.?.value == null);
+
+    token = iter.next_token();
+    try expect(token.?.kind == .ShortOption);
+    try expect(std.mem.eql(u8, token.?.text, "c"));
+    try expect(std.mem.eql(u8, token.?.value.?, "Red"));
+
+    token = iter.next_token();
+    try expect(token.?.kind == .LongOption);
+    try expect(std.mem.eql(u8, token.?.text, "debug"));
+    try expect(token.?.value == null);
+
+    token = iter.next_token();
+    try expect(token.?.kind == .LongOption);
+    try expect(std.mem.eql(u8, token.?.text, "color"));
+    try expect(std.mem.eql(u8, token.?.value.?, "Red"));
+
+    token = iter.next_token();
+    try expect(token.?.kind == .Plain);
+    try expect(std.mem.eql(u8, token.?.text, "push"));
+    try expect(token.?.value == null);
+}
