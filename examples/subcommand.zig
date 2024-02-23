@@ -24,7 +24,7 @@ pub fn main() !void {
 
     const app = z.App.new(root, &.{ pull, push });
 
-    const result = z.parse(app, &.{ "./exe", "-cRed", "push", "--force" }) catch |err| {
+    const result = z.parse(app, &.{ "./exe", "-cRed", "--debug", "pull", "--color=Blue" }) catch |err| {
         std.debug.print("Error parsing input: {}\n", .{err});
         return;
     };

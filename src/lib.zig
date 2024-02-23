@@ -2,6 +2,13 @@ const std = @import("std");
 
 const Type = std.builtin.Type;
 
+const ParseState = enum {
+    RootOptions,
+    SubOptions,
+    RootArguments,
+    SubArguments,
+};
+
 pub fn parse(app: App, argv: []const [:0]const u8) !Result(app) {
     var args = argv;
     var exe_name: ?[]const u8 = null;
@@ -10,51 +17,79 @@ pub fn parse(app: App, argv: []const [:0]const u8) !Result(app) {
         args = argv[1..];
     }
 
+    var state = ParseState.RootOptions;
     var root_options: ParsedOptions(app.root.options) = .{};
-    var sub: ParsedCommands(app.subcommands) = null;
+
+    var active_subcommand: ?[]const u8 = null;
+    var sub_union: ParsedCommands(app.subcommands) = null;
 
     var iter = Tokenizer.init(args);
     while (iter.next_token()) |token| {
-        if (token.is_option()) {
-            inline for (app.root.options) |option| {
-                if ((token.kind == .ShortOption and token.text[0] == option.short_name) or (token.kind == .LongOption and std.mem.eql(u8, token.text, option.long_name))) {
-                    @field(root_options, option.long_name) = try parse_token(token, option.kind);
-                }
-            }
-        }
+        switch (state) {
+            .RootOptions => {
+                switch (token.kind) {
+                    .ShortOption, .LongOption => {
+                        inline for (app.root.options) |option| {
+                            if (token.matches_option(option)) {
+                                @field(root_options, option.long_name) = try parse_token(token, option.kind);
+                            }
+                        }
+                    },
+                    .Plain => {
+                        inline for (app.subcommands) |subcommand| {
+                            if (std.mem.eql(u8, subcommand.name, token.text)) {
+                                const U = @typeInfo(ParsedCommands(app.subcommands)).Optional.child;
 
-        if (token.kind == .Plain) {
-            inline for (app.subcommands) |subcommand| {
-                if (std.mem.eql(u8, subcommand.name, token.text)) {
-                    var cmd_options: ParsedOptions(subcommand.options) = .{};
-
-                    while (true) {
-                        if (iter.next_token()) |_token| {
-                            if (!_token.is_option()) break;
-
-                            inline for (subcommand.options) |option| {
-                                if ((_token.kind == .ShortOption and _token.text[0] == option.short_name) or (_token.kind == .LongOption and std.mem.eql(u8, _token.text, option.long_name))) {
-                                    @field(cmd_options, option.long_name) = try parse_token(_token, option.kind);
-                                }
+                                active_subcommand = subcommand.name;
+                                sub_union = @unionInit(U, subcommand.name, .{
+                                    .options = .{},
+                                });
+                                state = .SubOptions;
                             }
                         }
 
-                        break;
-                    }
-
-                    const U = @typeInfo(ParsedCommands(app.subcommands)).Optional.child;
-                    sub = @unionInit(U, subcommand.name, .{
-                        .options = cmd_options,
-                    });
+                        if (active_subcommand == null) {
+                            state = .RootArguments;
+                        }
+                    },
                 }
-            }
+            },
+            .SubOptions => {
+                if (active_subcommand) |subcommand_name| {
+                    switch (token.kind) {
+                        .ShortOption, .LongOption => {
+                            inline for (app.subcommands) |subcommand| {
+                                if (std.mem.eql(u8, subcommand.name, subcommand_name)) {
+                                    inline for (subcommand.options) |option| {
+                                        if (token.matches_option(option)) {
+                                            @field(@field(@field(sub_union.?, subcommand.name), "options"), option.long_name) = try parse_token(token, option.kind);
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        .Plain => {
+                            state = .SubArguments;
+                        },
+                    }
+                } else {
+                    unreachable;
+                }
+            },
+            .RootArguments => {
+                std.debug.print("Parsing root arguments!\n", .{});
+            },
+
+            .SubArguments => {
+                std.debug.print("Parsing sub arguments!\n", .{});
+            },
         }
     }
 
     return .{
         .exe_name = exe_name,
         .options = root_options,
-        .subcommand = sub,
+        .subcommand = sub_union,
     };
 }
 
@@ -234,6 +269,10 @@ const Token = struct {
 
     pub fn is_option(token: Token) bool {
         return token.kind == .ShortOption or token.kind == .LongOption;
+    }
+
+    pub fn matches_option(token: Token, option: Option) bool {
+        return (token.kind == .ShortOption and token.text[0] == option.short_name) or (token.kind == .LongOption and std.mem.eql(u8, token.text, option.long_name));
     }
 };
 
