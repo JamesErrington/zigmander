@@ -11,6 +11,7 @@ pub fn parse(app: App, argv: []const [:0]const u8) !Result(app) {
     }
 
     var root_options: ParsedOptions(app.root.options) = .{};
+    var sub: ParsedCommands(app.subcommands) = null;
 
     var iter = Tokenizer.init(args);
     while (iter.next_token()) |token| {
@@ -21,15 +22,39 @@ pub fn parse(app: App, argv: []const [:0]const u8) !Result(app) {
                 }
             }
         }
+
+        if (token.kind == .Plain) {
+            inline for (app.subcommands) |subcommand| {
+                if (std.mem.eql(u8, subcommand.name, token.text)) {
+                    var cmd_options: ParsedOptions(subcommand.options) = .{};
+
+                    while (true) {
+                        if (iter.next_token()) |_token| {
+                            if (!_token.is_option()) break;
+
+                            inline for (subcommand.options) |option| {
+                                if ((_token.kind == .ShortOption and _token.text[0] == option.short_name) or (_token.kind == .LongOption and std.mem.eql(u8, _token.text, option.long_name))) {
+                                    @field(cmd_options, option.long_name) = try parse_token(_token, option.kind);
+                                }
+                            }
+                        }
+
+                        break;
+                    }
+
+                    const U = @typeInfo(ParsedCommands(app.subcommands)).Optional.child;
+                    sub = @unionInit(U, subcommand.name, .{
+                        .options = cmd_options,
+                    });
+                }
+            }
+        }
     }
 
     return .{
         .exe_name = exe_name,
         .options = root_options,
-        .subcommand = .{ .pull = .{ .options = .{
-            .shallow = null,
-            .color = null,
-        } } },
+        .subcommand = sub,
     };
 }
 
@@ -103,7 +128,6 @@ pub const App = struct {
 
 pub fn ParsedOptions(comptime options: []const Option) type {
     var fields: [options.len]Type.StructField = undefined;
-
 
     for (options, 0..) |option, i| {
         fields[i] = .{
